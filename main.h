@@ -1,8 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-struct node
- {
-   int data:12;
+#define BIT(x,n) (((x) >> (n)) & 1)
 
- }NODE;
+struct packet
+{
+	unsigned int seq_number;
+	int data:12;
+
+};
