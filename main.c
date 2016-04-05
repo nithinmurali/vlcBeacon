@@ -1,20 +1,26 @@
 #include "main.h"
 
 
-struct vlc_packet *tx_pkt;
+struct data_packet *tx_data_pkt;
+
+struct info_packet *tx_info_pkt;
+
+
+/////////////// VLC FRAMES //////////////////////////////////
 
 // For DATA frame
 #define DB_BYTE_LEN 5000
 #define DB_SYMBOL_LEN 5000*8
-static unsigned char data_buffer_byte[DB_BYTE_LEN];
-static _Bool data_buffer_symbol[DB_SYMBOL_LEN];
+static unsigned char data_buffer_byte[DB_BYTE_LEN]; //complete frame
+static _Bool data_buffer_symbol[DB_SYMBOL_LEN]; //complete frame after encoding
 
 // For ACK frame
-#define ACK_BYTE_LEN 50
-#define ACK_SYMBOL_LEN 50*8
-static char ack_buffer_byte[ACK_BYTE_LEN];
-static _Bool ack_buffer_symbol[ACK_SYMBOL_LEN];
+#define INFO_BYTE_LEN 50
+#define INFO_SYMBOL_LEN 50*8
+static char info_buffer_byte[ACK_BYTE_LEN]; //complte ack frame
+static _Bool info_buffer_symbol[ACK_SYMBOL_LEN]; //complete ack frame after encoding
 
+/////////////////////////////////////////////////////////////////
 
 //File ip output
 FILE *exein, *exeout;
@@ -67,7 +73,6 @@ size_t getData(char* data_buffer)
 }
 
 
-//  ______  NOT USED AS OF NOW  ________
 // On-Off Keying (OOK) WITH Manchester Run-Length-Limited (RLL) code
 static void OOK_with_Manchester_RLL(char *buffer_before_coding,
     _Bool *buffer_after_coding, int len_before_coding)
@@ -103,24 +108,6 @@ static void OOK_with_Manchester_RLL(char *buffer_before_coding,
     
 }
 
-// JUST CONVERT TO OOK
-static void SIMPLE_OOK(char *buffer_before_coding,
-    _Bool *buffer_after_coding, int len_before_coding)
-{
-    int byte_index, symbol_index = 0;
-    unsigned char curr_byte, mask;
-
-    for (byte_index=0; byte_index<len_before_coding; byte_index++) {
-        mask = 0x80;
-        curr_byte = buffer_before_coding[byte_index] & 0xff;
-        while (mask) {
-            buffer_after_coding[symbol_index++] = (_Bool) (curr_byte & mask);
-            mask >>= 1;
-        }
-    }
-}
-
-
 static void construct_frame_header(char* buffer, int buffer_len, int type, int payload_len)
 {
     int i;
@@ -140,8 +127,7 @@ static void construct_frame_header(char* buffer, int buffer_len, int type, int p
 }
 
 
-
-static void generate_DATA_frame(struct vlc_packet *pkt)
+static void generate_DATA_frame(struct data_packet *pkt)
 {
     int i, payload_len, index_block, encoded_len, num_of_blocks = 0;
 
@@ -149,45 +135,71 @@ static void generate_DATA_frame(struct vlc_packet *pkt)
 
     //encoded_len = payload_len+2*MAC_ADDR_LEN+PROTOCOL_LEN;
         
-    data_buffer_byte_len = FRAME_LEN_WO_PAYLOAD/8 + payload_len ;
+    data_buffer_byte_len = FRAME_LEN_WO_PAYLOAD + payload_len ;
     
-    memset (data_buffer_byte, 0, sizeof (unsigned char) * data_buffer_byte_len + CRC_LEN );
+    xmemset (data_buffer_byte, 0, sizeof (unsigned char) * data_buffer_byte_len + CRC_LEN );
     
-    data_buffer_symbol_len = (data_buffer_byte_len-PREAMBLE_LEN)*8*ENCODING_MUL + PREAMBLE_LEN*8;
+    data_buffer_symbol_len = ((data_buffer_byte_len-PREAMBLE_LEN)*8*ENCODING_MUL + PREAMBLE_LEN*8)/SYMBOL_GROUP;
 
     if (data_buffer_byte==NULL || data_buffer_symbol==NULL) {
         printk ("Ran out of memory generating new frames.\n");
         return;
     }
+
+    //create the headers
+    construct_frame_header(data_buffer_byte, data_buffer_byte_len, 1, payload_len);
     
-    // Construct a new data frame
-    memcpy(data_buffer_byte+PREAMBLE_LEN, pkt->data,  pkt->datalen);
-    construct_frame_header(data_buffer_byte, data_buffer_byte_len, payload_len);
+    // copy the packet data
+    buffer[data_buffer_byte+FRAME_LEN_WO_PAYLOAD] = (unsigned char) (pkt->file_id);
+
+    buffer[data_buffer_byte+FRAME_LEN_WO_PAYLOAD+1] = (unsigned char) ((pkt->seq_id>>8) & 0xff);
+    buffer[data_buffer_byte+FRAME_LEN_WO_PAYLOAD+2] = (unsigned char) (pkt->seq_id & 0xff);
     
-    /// Encode the blocks of a frame
-    /*for (index_block = 0; index_block < num_of_blocks; index_block++) {
-        for (i = 0; i < ECC_LEN; i++)
-            par[i] = 0;
-        if (index_block < num_of_blocks-1) {
-            encode_rs8(rs_decoder, 
-                    data_buffer_byte+PREAMBLE_LEN+SFD_LEN+OCTET_LEN+index_block*block_size, 
-                    block_size, par, 0);
-        } else {
-            encode_rs8(rs_decoder, 
-                    data_buffer_byte+PREAMBLE_LEN+SFD_LEN+OCTET_LEN+index_block*block_size,
-                    encoded_len%block_size, par, 0);
-        }
-        for (i = 0; i < ECC_LEN; i++)
-            data_buffer_byte[FRAME_LEN_WO_PAYLOAD+payload_len+(index_block-1)*ECC_LEN+i] = par[i];
-    }*/
+    buffer[data_buffer_byte+FRAME_LEN_WO_PAYLOAD+3] = (unsigned char) ((pkt->datalen>>8) & 0xff);
+    buffer[data_buffer_byte+FRAME_LEN_WO_PAYLOAD+4] = (unsigned char) (pkt->datalen & 0xff);
+    
+    memcpy(data_buffer_byte + FRAME_LEN_WO_PAYLOAD+5, pkt->data,  pkt->datalen);
     
     // Encoding the frame
     OOK_with_Manchester_RLL(data_buffer_byte, data_buffer_symbol,
                             data_buffer_byte_len);
-    tx_data_curr_index = data_buffer_symbol_len;
-    
 }
 
+
+static void generate_INFO_frame(struct info_packet *pkt)
+{
+    int i, payload_len, index_block, encoded_len, num_of_blocks = 0;
+
+    payload_len = pkt->datalen + sizeof(pkt->file_id) + sizeof(pkt->seq_id);
+
+    //encoded_len = payload_len+2*MAC_ADDR_LEN+PROTOCOL_LEN;
+        
+    data_buffer_byte_len = FRAME_LEN_WO_PAYLOAD + payload_len ;
+    
+    xmemset (data_buffer_byte, 0, sizeof (unsigned char) * data_buffer_byte_len + CRC_LEN );
+    
+    data_buffer_symbol_len = ((data_buffer_byte_len-PREAMBLE_LEN)*8*ENCODING_MUL + PREAMBLE_LEN*8)/SYMBOL_GROUP;
+
+    if (data_buffer_byte==NULL || data_buffer_symbol==NULL) {
+        printk ("Ran out of memory generating new frames.\n");
+        return;
+    }
+
+    // copy the packet data
+    buffer[data_buffer_byte+FRAME_LEN_WO_PAYLOAD] = (unsigned char) (pkt->file_id);
+
+    buffer[data_buffer_byte+FRAME_LEN_WO_PAYLOAD+1] = (unsigned char) ((pkt->max_seq_id>>8) & 0xff);
+    buffer[data_buffer_byte+FRAME_LEN_WO_PAYLOAD+2] = (unsigned char) (pkt->max_seq_id & 0xff);
+    
+    memcpy(data_buffer_byte + FRAME_LEN_WO_PAYLOAD+3, pkt->name_file,  sizeof(char)*100);
+  
+    //create the headers
+    construct_frame_header(data_buffer_byte, data_buffer_byte_len, 1, payload_len);
+        
+    // Encoding the frame
+    OOK_with_Manchester_RLL(data_buffer_byte, data_buffer_symbol,
+                            data_buffer_byte_len);
+}
 
 
 
