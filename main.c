@@ -72,6 +72,40 @@ size_t getData(char* data_buffer)
     return flag;
 }
 
+//toplevel function for sending file
+static void vlc_send_file(char fileName[])
+{
+    
+    exein = fopen(fileName, "rb");
+    if (exein == NULL) {
+      perror("file open for reading");
+      exit(EXIT_FAILURE);
+    }
+
+    ///// genrate info packet
+    struct info_packet file_info_pkt;
+    file_info_pkt.file_id = 'a';
+    
+    fseek(f, 0, SEEK_END); // seek to end of file
+    int size = ftell(f); // get current file pointer
+    fseek(f, 0, SEEK_SET); // seek back to beginning of file
+    file_info_pkt.max_seq_id = ceil(size/255.0);
+
+    strcpy(file_info_pkt.name_file,fileName);
+
+    send_vlc_packet(file_info_pkt, 2);
+
+    ////generate data packets
+    while(exein)
+    {
+        size_t flag;
+        flag = fread(data_buffer, 1, sizeof data_buffer, exein);
+    
+    }
+
+    fclose(exein);
+}
+
 
 // On-Off Keying (OOK) WITH Manchester Run-Length-Limited (RLL) code
 static void OOK_with_Manchester_RLL(char *buffer_before_coding,
