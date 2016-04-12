@@ -82,9 +82,12 @@ static void vlc_send_file(char fileName[])
       exit(EXIT_FAILURE);
     }
 
+    char file_id;
+    char file_id='a';
+
     ///// genrate info packet
     struct info_packet file_info_pkt;
-    file_info_pkt.file_id = 'a';
+    file_info_pkt.file_id = file_id;
     
     fseek(f, 0, SEEK_END); // seek to end of file
     int size = ftell(f); // get current file pointer
@@ -96,16 +99,43 @@ static void vlc_send_file(char fileName[])
     send_vlc_packet(file_info_pkt, 2);
 
     ////generate data packets
-    while(exein)
-    {
-        size_t flag;
-        flag = fread(data_buffer, 1, sizeof data_buffer, exein);
+    struct data_packet file_data_pkt;
+    int seq_id = 0;
+    size_t flag;
+    file_data_pkt.file_id = file_id;
     
+    flag = fread(file_data_pkt.data, 1, sizeof file_data_pkt.data, exein);    
+    while(flag)
+    {
+        file_data_pkt.seq_id = seq_id;
+        file_data_pkt.datalen = flag;
+
+        send_vlc_packet(file_data_pkt,1);
+
+        //TODO check if true
+        flag = fread(file_data_pkt.data, 1, sizeof file_data_pkt.data, exein);    
     }
 
     fclose(exein);
 }
 
+//general function to send any packet
+void send_vlc_packet(void* packet, short type)
+{
+    switch (type)
+    {
+        1:
+        //file data packet
+        
+
+        break;
+
+        2:
+        //file data packet
+
+        break;
+    }
+}
 
 // On-Off Keying (OOK) WITH Manchester Run-Length-Limited (RLL) code
 static void OOK_with_Manchester_RLL(char *buffer_before_coding,

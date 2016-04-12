@@ -6,12 +6,12 @@
 
 /////////////////////// VFTP packets /////////////////////
 //TYPE 1
-struct data_packet
+typedef struct data_packet
 {
 	unsigned char file_id;
 	unsigned int seq_id;
 	unsigned int datalen; //in bytes
-    u8 data[5000];
+    unsigned char data[1024];
 };
 
 //TYPE 2
@@ -33,8 +33,8 @@ struct request_packet
 
 /* Frame format
  * -----------------------------------------------------------------
- * FIELD      | Preamble   | Type | Length   |    Payload    | CRC  |
- * BYTE/bits  | 1B         | 1B   |   2B     |   (max:255B)  |  1B  |
+ * FIELD      | Preamble   | Type | Length   |    Payload   | CRC  |
+ * BYTE/bits  | 1B         | 1B   |   2B     |   (max:1KB)  |  1B  |
  * -----------------------------------------------------------------
  */
  // Here paylod is the packet
